@@ -7,7 +7,7 @@ use axum::{
 };
 use btleplug::{
     api::{Central, CentralEvent, Manager as _, Peripheral},
-    platform::Manager,
+    platform::{Manager, PeripheralId},
 };
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -109,20 +109,45 @@ async fn connect(
     state: axum::extract::State<AppState>,
     axum::extract::Form(form): axum::extract::Form<ConnectRequest>,
 ) -> impl IntoResponse {
-    // Here you would implement actual BLE connection logic
-    let characteristics = vec![
-        "Battery Level".to_string(),
-        "Device Name".to_string(),
-        "Manufacturer".to_string(),
-    ];
+    let address = form.address.clone();
 
-    Html(
-        CharacteristicsTemplate { characteristics }
-            .render()
-            .unwrap(),
-    )
+    // Acquire a read lock on the devices list
+    let devices = state.devices.read().await;
+
+    // Find the device with the matching address
+    if let Some(device) = devices.iter().find(|d| d.address == address) {
+        let manager = Manager::new().await.unwrap();
+        let adapter = manager
+            .adapters()
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+
+        for p in adapter.peripherals().await.unwrap() {
+            if p.properties().await.unwrap().unwrap().address.to_string() == address {
+                p.connect().await.unwrap();
+                p.discover_services().await.unwrap();
+
+                let characteristics = p
+                    .characteristics()
+                    .iter()
+                    .map(|c| format!("{:?}", c))
+                    .collect();
+                return Html(
+                    CharacteristicsTemplate { characteristics }
+                        .render()
+                        .unwrap(),
+                );
+            }
+        }
+    }
+    Html("<p>Device not found.</p>".to_string())
 }
 
+// TODO: this barely works. not finding devices that I can find with the app no problem
+// lets re-write this by reading the docs rather then relying on chatgpt
 async fn ble_scanner(
     adapter: btleplug::platform::Adapter,
     devices: Arc<RwLock<Vec<ScannedDevice>>>,
@@ -149,7 +174,7 @@ async fn ble_scanner(
                                         let name = properties
                                             .local_name
                                             .unwrap_or_else(|| "Unknown".to_string());
-                                        list.push(ScannedDevice {
+                                        let device = ScannedDevice {
                                             name,
                                             address: id.to_string(),
                                             connected: false,
@@ -176,7 +201,8 @@ async fn ble_scanner(
                                                 .iter()
                                                 .map(|s| format!("{:?}", s))
                                                 .collect(),
-                                        });
+                                        };
+                                        list.push(device.clone());
                                     }
                                     Err(e) => println!(
                                         "Error with peripheral properties for some reason: {e:}"
