@@ -1,0 +1,47 @@
+<div>
+    {% for device in devices %}
+    <div class="device">
+        <h3>{{ device.name }} ({{ device.address }})</h3>
+        <p><strong>Address Type:</strong> {{ device.address_type }}</p>
+        <p><strong>TX Power Level:</strong> {{ device.tx_power_level }}</p>
+        <p><strong>RSSI:</strong> {{ device.rssi }}</p>
+        <p><strong>Manufacturer Data:</strong> 
+            {% if !device.manufacturer_data.is_empty() %}
+                <ul>
+                    {% for data in device.manufacturer_data %}
+                    <li>{{ data.0 }}: {{ data.1 }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                None
+            {% endif %}
+        </p>
+        <p><strong>Service Data:</strong> 
+            {% if !device.service_data.is_empty() %}
+                <ul>
+                    {% for data in device.service_data %}
+                    <li>{{ data.0 }}: {{ data.1 }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                None
+            {% endif %}
+        </p>
+        <p><strong>Services:</strong> 
+            {% if !device.services.is_empty() %}
+                <ul>
+                    {% for service in device.services %}
+                    <li>{{ service }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                None
+            {% endif %}
+        </p>
+        <form hx-post="/connect" hx-target="#characteristics">
+            <input type="hidden" name="address" value="{{ device.address }}">
+            <button type="submit">Connect</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
