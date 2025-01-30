@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>BLE Device Scanner</h1>
+<div id="devices" hx-get="/devices" hx-trigger="load, every 1s"></div>
+<div id="characteristics"></div>
+{% endblock %}
+

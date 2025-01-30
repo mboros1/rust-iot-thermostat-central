@@ -71,10 +71,8 @@ impl ScannedDevice {
 }
 
 #[derive(Template)]
-#[template(path = "base.html")]
-struct BaseTemplate {
-    content: String,
-}
+#[template(path = "index.html")]
+struct IndexTemplate;
 
 #[derive(Template)]
 #[template(path = "devices.html")]
@@ -123,17 +121,7 @@ async fn main() -> Result<()> {
 }
 
 async fn root() -> impl IntoResponse {
-    Html(
-        BaseTemplate {
-            content: r#"
-                <h1>BLE Device Scanner</h1>
-                <div id="devices" hx-get="/devices" hx-trigger="load, every 1s"></div>
-            "#
-            .to_string(),
-        }
-        .render()
-        .unwrap(),
-    )
+    Html(IndexTemplate.render().unwrap())
 }
 
 async fn get_devices(state: axum::extract::State<AppState>) -> impl IntoResponse {
