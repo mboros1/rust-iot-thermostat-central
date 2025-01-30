@@ -34,6 +34,42 @@ struct ScannedDevice {
     services: Vec<String>,
 }
 
+impl ScannedDevice {
+    fn from_properties(
+        id: &btleplug::platform::PeripheralId,
+        properties: btleplug::api::PeripheralProperties,
+    ) -> Self {
+        ScannedDevice {
+            name: properties
+                .local_name
+                .unwrap_or_else(|| "Unknown".to_string()),
+            address: id.to_string(),
+            connected: false,
+            address_type: properties
+                .address_type
+                .map(|a| format!("{:?}", a))
+                .unwrap_or_else(|| "Unknown".to_string()),
+            tx_power_level: properties.tx_power_level.unwrap_or(0),
+            rssi: properties.rssi.unwrap_or(0),
+            manufacturer_data: properties
+                .manufacturer_data
+                .iter()
+                .map(|(k, v)| (k.clone(), format!("{:?}", v)))
+                .collect(),
+            service_data: properties
+                .service_data
+                .iter()
+                .map(|(k, v)| (k.to_string(), format!("{:?}", v)))
+                .collect(),
+            services: properties
+                .services
+                .iter()
+                .map(|s| format!("{:?}", s))
+                .collect(),
+        }
+    }
+}
+
 #[derive(Template)]
 #[template(path = "base.html")]
 struct BaseTemplate {
@@ -146,8 +182,6 @@ async fn connect(
     Html("<p>Device not found.</p>".to_string())
 }
 
-// TODO: this barely works. not finding devices that I can find with the app no problem
-// lets re-write this by reading the docs rather then relying on chatgpt
 async fn ble_scanner(
     adapter: btleplug::platform::Adapter,
     devices: Arc<RwLock<Vec<ScannedDevice>>>,
@@ -156,65 +190,31 @@ async fn ble_scanner(
 
     loop {
         if let Some(event) = events.next().await {
-            match event {
-                CentralEvent::DeviceDiscovered(id) => {
-                    let mut list = devices.write().await;
-
-                    // Check if the device is already in the list
-                    if !list.iter().any(|d| d.address == id.to_string()) {
-                        // Get the Peripheral for the discovered device
-                        let peripheral = adapter.peripheral(&id).await;
-                        match peripheral {
-                            Err(e) => println!("Error with peripheral for some reason: {e:}"),
-                            Ok(peripheral) => {
-                                let properties = peripheral.properties().await;
-                                match properties {
-                                    Ok(properties) => {
-                                        let properties = properties.unwrap();
-                                        let name = properties
-                                            .local_name
-                                            .unwrap_or_else(|| "Unknown".to_string());
-                                        let device = ScannedDevice {
-                                            name,
-                                            address: id.to_string(),
-                                            connected: false,
-                                            address_type: properties
-                                                .address_type
-                                                .map(|a| format!("{:?}", a))
-                                                .unwrap_or_else(|| "Unknown".to_string()),
-                                            tx_power_level: properties
-                                                .tx_power_level
-                                                .unwrap_or_else(|| 0),
-                                            rssi: properties.rssi.unwrap_or_else(|| 0),
-                                            manufacturer_data: properties
-                                                .manufacturer_data
-                                                .iter()
-                                                .map(|(k, v)| (k.clone(), format!("{:?}", v)))
-                                                .collect(),
-                                            service_data: properties
-                                                .service_data
-                                                .iter()
-                                                .map(|(k, v)| (k.to_string(), format!("{:?}", v)))
-                                                .collect(),
-                                            services: properties
-                                                .services
-                                                .iter()
-                                                .map(|s| format!("{:?}", s))
-                                                .collect(),
-                                        };
-                                        list.push(device.clone());
-                                    }
-                                    Err(e) => println!(
-                                        "Error with peripheral properties for some reason: {e:}"
-                                    ),
-                                }
-                            }
-                        }
-                    }
+            if let CentralEvent::DeviceDiscovered(id) = event {
+                let mut list = devices.write().await;
+                if !list.iter().any(|d| d.address == id.to_string()) {
+                    handle_device(&adapter, &id, &mut list).await;
                 }
-                _ => {}
             }
         }
+
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+}
+
+async fn handle_device(
+    adapter: &btleplug::platform::Adapter,
+    id: &btleplug::platform::PeripheralId,
+    list: &mut Vec<ScannedDevice>,
+) {
+    if let Ok(peripheral) = adapter.peripheral(id).await {
+        if let Ok(Some(properties)) = peripheral.properties().await {
+            let device = ScannedDevice::from_properties(id, properties);
+            list.push(device);
+        } else {
+            println!("Error: Could not retrieve properties for device {id}");
+        }
+    } else {
+        println!("Error: Could not get peripheral for device {id}");
     }
 }
