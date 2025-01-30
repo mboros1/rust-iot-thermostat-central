@@ -1,13 +1,17 @@
 use anyhow::Result;
 use askama::Template;
 use axum::{
+    extract::{
+        ws::{Message, WebSocket},
+        State, WebSocketUpgrade,
+    },
     response::{Html, IntoResponse},
     routing::{get, post},
     Router,
 };
 use btleplug::{
-    api::{Central, CentralEvent, Manager as _, Peripheral},
-    platform::{Manager, PeripheralId},
+    api::{Central, CentralEvent, Manager as _, Peripheral, ScanFilter},
+    platform::Manager,
 };
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -96,7 +100,8 @@ async fn main() -> Result<()> {
     // Set up BLE
     let manager = Manager::new().await?;
     let adapter = manager.adapters().await?.into_iter().next().unwrap();
-    adapter.start_scan(Default::default()).await?;
+    let filter = ScanFilter::default();
+    adapter.start_scan(filter).await?;
 
     // Shared device list
     let devices = Arc::new(RwLock::new(Vec::new()));
@@ -111,6 +116,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(root))
         .route("/devices", get(get_devices))
+        .route("/ws/devices", get(websocket_handler))
         .route("/connect", post(connect))
         .with_state(state);
 
@@ -123,10 +129,26 @@ async fn main() -> Result<()> {
 async fn root() -> impl IntoResponse {
     Html(IndexTemplate.render().unwrap())
 }
-
 async fn get_devices(state: axum::extract::State<AppState>) -> impl IntoResponse {
     let devices = state.devices.read().await.clone();
     Html(DevicesTemplate { devices }.render().unwrap())
+}
+
+async fn websocket_handler(ws: WebSocketUpgrade, state: State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_websocket(socket, state))
+}
+
+async fn handle_websocket(mut socket: WebSocket, state: State<AppState>) {
+    loop {
+        let devices = state.devices.read().await.clone();
+        let rendered_html = DevicesTemplate { devices }.render().unwrap();
+
+        if socket.send(Message::Text(rendered_html)).await.is_err() {
+            break; // Client disconnected
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Control update frequency
+    }
 }
 
 async fn connect(
