@@ -97,22 +97,18 @@ struct ConnectRequest {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Set up BLE
     let manager = Manager::new().await?;
     let adapter = manager.adapters().await?.into_iter().next().unwrap();
     let filter = ScanFilter::default();
     adapter.start_scan(filter).await?;
 
-    // Shared device list
     let devices = Arc::new(RwLock::new(Vec::new()));
     let state = AppState {
         devices: devices.clone(),
     };
 
-    // Spawn BLE scanner task
     tokio::spawn(ble_scanner(adapter, devices));
 
-    // Set up web server
     let app = Router::new()
         .route("/", get(root))
         .route("/devices", get(get_devices))
@@ -144,10 +140,10 @@ async fn handle_websocket(mut socket: WebSocket, state: State<AppState>) {
         let rendered_html = DevicesTemplate { devices }.render().unwrap();
 
         if socket.send(Message::Text(rendered_html)).await.is_err() {
-            break; // Client disconnected
+            break;
         }
 
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Control update frequency
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 }
 
@@ -157,10 +153,8 @@ async fn connect(
 ) -> impl IntoResponse {
     let address = form.address.clone();
 
-    // Acquire a read lock on the devices list
     let devices = state.devices.read().await;
 
-    // Find the device with the matching address
     if let Some(device) = devices.iter().find(|d| d.address == address) {
         let manager = Manager::new().await.unwrap();
         let adapter = manager
