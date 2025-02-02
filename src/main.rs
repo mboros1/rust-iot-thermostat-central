@@ -194,13 +194,34 @@ async fn ble_scanner(
 
     loop {
         if let Some(event) = events.next().await {
+            match event {
+                CentralEvent::DeviceDiscovered(id) | CentralEvent::DeviceUpdated(id) => {
+                    let mut list = devices.write().await;
+                    if let Some(existing) = list.iter_mut().find(|d| d.address == id.to_string()) {
+                        // Update existing device properties.
+                        if let Ok(peripheral) = adapter.peripheral(&id).await {
+                            if let Ok(Some(properties)) = peripheral.properties().await {
+                                *existing = ScannedDevice::from_properties(&id, properties);
+                            }
+                        }
+                    } else {
+                        // New device discovered.
+                        handle_device(&adapter, &id, &mut list).await;
+                    }
+                }
+                _ => {
+                    println!("Other event: {:?}", event);
+                }
+            }
+        }
+        /*
             if let CentralEvent::DeviceDiscovered(id) = event {
                 let mut list = devices.write().await;
                 if !list.iter().any(|d| d.address == id.to_string()) {
                     handle_device(&adapter, &id, &mut list).await;
                 }
             }
-        }
+        */
 
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
